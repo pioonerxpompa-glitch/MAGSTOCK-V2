@@ -1,0 +1,1 @@
+# MAGSTOCK v2
