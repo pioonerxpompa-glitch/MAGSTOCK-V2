@@ -248,4 +248,73 @@ app.get("/dashboard",{preHandler:authenticate},async()=>{
   return {products,categories,transactions,lowStock};
 });
 
+
+app.get("/products/by-ean/:ean",{preHandler:authenticate},async(request,reply)=>{
+  const ean=(request.params as {ean:string}).ean;
+  if(!validEan13(ean)) return reply.code(400).send({error:"INVALID_EAN13"});
+  const product=await db.product.findUnique({where:{ean},include:{category:true,stocks:{include:{warehouse:true}}}});
+  if(!product) return reply.code(404).send({error:"PRODUCT_NOT_FOUND"});
+  return product;
+});
+
+app.get("/products/export.csv",{preHandler:authenticate},async(_request,reply)=>{
+  const products=await db.product.findMany({include:{category:true},orderBy:{name:"asc"}});
+  const header=["name","ean","eurocashIndex","aen","subgroup","unit","volume","category","minStock","active"].join(";");
+  const escape=(value:unknown)=>{
+    const s=String(value??"");
+    return /[;"\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  };
+  const rows=products.map(p=>[
+    p.name,p.ean,p.eurocashIndex,p.aen,p.subgroup,p.unit,p.volume,p.category?.name,p.minStock,p.active
+  ].map(escape).join(";"));
+  return reply
+    .header("Content-Type","text/csv; charset=utf-8")
+    .header("Content-Disposition",'attachment; filename="magstock-products.csv"')
+    .send([header,...rows].join("\n"));
+});
+
+app.get("/products/duplicates",{preHandler:[authenticate,requireAdmin]},async()=>{
+  const products=await db.product.findMany({where:{active:true},orderBy:{name:"asc"}});
+  const groups=new Map<string,typeof products>();
+  for(const product of products){
+    const key=product.ean ? "ean:"+product.ean : "name:"+product.normalizedName;
+    const group=groups.get(key)||[];
+    group.push(product);
+    groups.set(key,group);
+  }
+  return [...groups.entries()]
+    .filter((item)=>item[1].length>1)
+    .map(([key,items])=>({key,items}));
+});
+
+app.post("/products/merge",{preHandler:[authenticate,requireAdmin]},async(request,reply)=>{
+  const body=z.object({survivorId:z.string(),duplicateIds:z.array(z.string()).min(1)}).parse(request.body);
+  if(body.duplicateIds.includes(body.survivorId)) return reply.code(400).send({error:"INVALID_MERGE"});
+  return db.$transaction(async(tx)=>{
+    for(const duplicateId of body.duplicateIds){
+      const stocks=await tx.stock.findMany({where:{productId:duplicateId}});
+      for(const stock of stocks){
+        const survivorStock=await tx.stock.findUnique({
+          where:{productId_warehouseId:{productId:body.survivorId,warehouseId:stock.warehouseId}}
+        });
+        if(survivorStock){
+          await tx.stock.update({where:{id:survivorStock.id},data:{quantity:{increment:stock.quantity}}});
+          await tx.stock.delete({where:{id:stock.id}});
+        }else{
+          await tx.stock.update({where:{id:stock.id},data:{productId:body.survivorId}});
+        }
+      }
+      await tx.transaction.updateMany({where:{productId:duplicateId},data:{productId:body.survivorId}});
+      await tx.product.delete({where:{id:duplicateId}});
+    }
+    return tx.product.findUnique({
+      where:{id:body.survivorId},
+      include:{category:true,stocks:{include:{warehouse:true}}}
+    });
+  }).catch((error:unknown)=>{
+    request.log.error(error);
+    return reply.code(409).send({error:"MERGE_FAILED"});
+  });
+});
+
 await app.listen({port:Number(process.env.API_PORT||4000),host:"0.0.0.0"});
