@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: magstock-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: magstock
+      POSTGRES_PASSWORD: magstock
+      POSTGRES_DB: magstock
+    ports:
+      - "5432:5432"
+    volumes:
+      - magstock_pg:/var/lib/postgresql/data
+
+volumes:
+  magstock_pg:
