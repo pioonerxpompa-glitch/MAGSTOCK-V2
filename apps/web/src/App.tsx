@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 async function api(path: string, options: RequestInit = {}) {
@@ -73,9 +73,9 @@ function Scanner(){
  async function startCamera(){
   if(!("BarcodeDetector" in window)){setMessage("Ta przegladarka nie obsluguje automatycznego skanowania. Uzyj pola EAN.");return;}
   const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
-  const video=videoRef.current;if(!video)return;video.srcObject=stream;await video.play();setRunning(true);
+  const video=videoRef.current;if(!video)return;video.srcObject=stream;await video.play();setRunning(true);let active=true;
   const Detector=(window as any).BarcodeDetector;const detector=new Detector({formats:["ean_13"]});
-  const loop=async()=>{if(!running)return;try{const found=await detector.detect(video);if(found?.[0]?.rawValue){await lookup(found[0].rawValue);setRunning(false);stream.getTracks().forEach(t=>t.stop());return;}}catch{}requestAnimationFrame(loop);};requestAnimationFrame(loop);
+  const loop=async()=>{if(!active)return;try{const found=await detector.detect(video);if(found?.[0]?.rawValue){active=false;await lookup(found[0].rawValue);setRunning(false);stream.getTracks().forEach(t=>t.stop());return;}}catch{}requestAnimationFrame(loop);};requestAnimationFrame(loop);
  }
  return <section className="panel scanner"><h2>Skaner EAN-13</h2><div className="scan-box"><video ref={videoRef} muted playsInline/></div><div className="scan-actions"><button onClick={startCamera}>Uruchom kamere</button><input inputMode="numeric" maxLength={13} value={ean} onChange={e=>setEan(e.target.value)} placeholder="Wpisz EAN-13"/><button onClick={()=>lookup(ean)}>Szukaj</button></div>{message&&<div className="scan-message">{message}</div>}{product&&<div className="scan-product"><b>{product.name}</b><span>EAN: {product.ean}</span>{product.stocks?.map((s:any)=><span key={s.warehouse.id}>{s.warehouse.name}: {String(s.quantity)}</span>)}</div>}</section>;
 }
