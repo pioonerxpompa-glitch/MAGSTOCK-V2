@@ -1,0 +1,18 @@
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
+import {z} from "zod";
+import {db} from "./db.js";
+import {authenticate,loginUser,registerAuth} from "./auth.js";
+const app=Fastify({logger:true});
+await app.register(cors,{origin:process.env.WEB_ORIGIN||"http://localhost:5173"});
+await app.register(multipart);
+await registerAuth(app);
+app.get("/health",async()=>({ok:true,version:"2.0.0",service:"MAGSTOCK API"}));
+app.post("/auth/login",async(req,reply)=>{const body=z.object({pin:z.string().min(1).max(32)}).parse(req.body);const r=await loginUser(app,body.pin);if("error"in r)return reply.code(r.error==="LICENSE_REQUIRED"?403:401).send(r);return r;});
+app.get("/me",{preHandler:authenticate},async req=>req.user);
+app.get("/warehouses",{preHandler:authenticate},async()=>db.warehouse.findMany({where:{active:true},orderBy:{name:"asc"}}));
+app.get("/categories",{preHandler:authenticate},async()=>db.category.findMany({include:{children:true},orderBy:{name:"asc"}}));
+app.get("/products",{preHandler:authenticate},async req=>{const q=z.object({search:z.string().optional(),active:z.coerce.boolean().optional()}).parse(req.query);return db.product.findMany({where:{active:q.active??undefined,OR:q.search?[{name:{contains:q.search,mode:"insensitive"}},{ean:{contains:q.search}},{eurocashIndex:{contains:q.search,mode:"insensitive"}}]:undefined},include:{category:true,stocks:{include:{warehouse:true}}},orderBy:{name:"asc"}})});
+app.get("/dashboard",{preHandler:authenticate},async()=>{const [products,categories,transactions,lowStock]=await Promise.all([db.product.count({where:{active:true}}),db.category.count(),db.transaction.count(),db.stock.count({where:{quantity:{lte:0}}})]);return {products,categories,transactions,lowStock};});
+await app.listen({port:Number(process.env.API_PORT||4000),host:"0.0.0.0"});
