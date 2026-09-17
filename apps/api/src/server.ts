@@ -4,12 +4,26 @@ import multipart from "@fastify/multipart";
 import { z } from "zod";
 import { db } from "./db.js";
 import { authenticate, loginUser, registerAuth } from "./auth.js";
+import { registerHealthRoutes } from "./health.js";
 
 const app = Fastify({ logger: true });
 
+app.setErrorHandler((error, request, reply) => {
+  request.log.error(error);
+  if ((error as { validation?: unknown }).validation) {
+    return reply.code(400).send({ error: "VALIDATION_ERROR" });
+  }
+  return reply.code(500).send({ error: "INTERNAL_SERVER_ERROR" });
+});
+
+app.addHook("onClose", async () => {
+  await db.$disconnect();
+});
+
 await app.register(cors, { origin: process.env.WEB_ORIGIN || "http://localhost:5173" });
-await app.register(multipart);
+await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 await registerAuth(app);
+await registerHealthRoutes(app);
 
 const productInput = z.object({
   name: z.string().min(1).max(200),
