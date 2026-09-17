@@ -9,3 +9,4 @@ uploads/*
 !uploads/.gitkeep
 backups/*
 !backups/.gitkeep
+apps/api/npm
