@@ -1,29 +1,20 @@
 services:
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-magstock}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-magstock}
-    volumes:
-      - magstock_pg:/var/lib/postgresql/data
-
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    restart: unless-stopped
-    depends_on:
-      - db
+    env_file: [.env]
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-magstock}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-magstock}
-      JWT_SECRET: ${JWT_SECRET}
-      ADMIN_PIN: ${ADMIN_PIN}
+      NODE_ENV: production
       API_PORT: 4000
-      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost}
-    ports:
-      - "4000:4000"
+    restart: unless-stopped
+    ports: ["4000:4000"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   web:
     build:
@@ -33,9 +24,6 @@ services:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:4000}
     restart: unless-stopped
     depends_on:
-      - api
-    ports:
-      - "80:80"
-
-volumes:
-  magstock_pg:
+      api:
+        condition: service_healthy
+    ports: ["80:80"]
