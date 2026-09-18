@@ -1,24 +1,12 @@
-#!/usr/bin/env sh
-set -eu
+#!/usr/bin/env bash
+set -Eeuo pipefail
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$APP_DIR"
 
-echo "== MAGSTOCK UPDATE =="
-echo "1/5 Backup"
-./scripts/backup.sh
-
-echo "2/5 Pull"
-git fetch --all
-git checkout main
-git pull --ff-only origin main
-
-echo "3/5 Build"
+git pull
 docker compose -f docker-compose.prod.yml build
-
-echo "4/5 Database"
-docker compose -f docker-compose.prod.yml run --rm api sh -c 'npx prisma migrate deploy'
-
-echo "5/5 Restart + health"
+docker compose -f docker-compose.prod.yml run --rm api npx prisma migrate deploy
+docker compose -f docker-compose.prod.yml run --rm api npm run seed
 docker compose -f docker-compose.prod.yml up -d
-sleep 5
-./scripts/healthcheck.sh
-
-echo "UPDATE OK"
+docker compose -f docker-compose.prod.yml ps
+echo "MAGSTOCK update completed."
